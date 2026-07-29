@@ -2,13 +2,17 @@ import streamlit as st
 import pandas as pd
 import re
 
-# Configurações da página
+# Configuração visual do aplicativo
 st.set_page_config(page_title="Cardápio Digital", layout="centered")
 
-# Link formatado em CSV da sua planilha DB_cardapio_QR
-LINK_PLANILHA = "https://docs.google.com/spreadsheets/d/1tqUZ_jP7qw7TsEs6gjB5m_l_fgmpExaZhnYnAUuEXug/export?format=csv"
+# Busca o link da planilha com segurança no cofre do Streamlit
+try:
+    LINK_PLANILHA = st.secrets["LINK_PLANILHA"]
+except KeyError:
+    st.error("Erro de configuração: adicione 'LINK_PLANILHA' nos Secrets do Streamlit.")
+    st.stop()
 
-# Converte o link de visualização do Google Drive em link direto de imagem
+# Função que converte links do Google Drive para links diretos de imagem
 def converter_link_drive(url):
     if pd.isna(url) or not isinstance(url, str):
         return None
@@ -18,19 +22,19 @@ def converter_link_drive(url):
         return f"https://lh3.googleusercontent.com/d/{file_id}"
     return url
 
-@st.cache_data(ttl=30)  # Atualiza os dados a cada 30 segundos
+@st.cache_data(ttl=30)  # Atualiza as informações a cada 30 segundos
 def carregar_dados():
     return pd.read_csv(LINK_PLANILHA)
 
 try:
     df = carregar_dados()
 
-    # Define o título do estabelecimento
+    # Título principal baseado na primeira linha do estabelecimento
     nome_estabelecimento = df['Estabelecimento'].iloc[0] if not df.empty else "Cardápio Digital"
     st.title(f"🍔 {nome_estabelecimento}")
     st.markdown("---")
 
-    # Renderiza os produtos
+    # Renderiza a lista de produtos
     for index, linha in df.iterrows():
         col1, col2 = st.columns([3, 1])
         
@@ -48,4 +52,4 @@ try:
         st.markdown("---")
 
 except Exception as e:
-    st.error("Carregando cardápio... Se persistir, verifique a planilha.")
+    st.error("Carregando cardápio... Verifique se a planilha está acessível.")
