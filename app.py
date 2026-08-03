@@ -1,55 +1,71 @@
-import streamlit as st
 import pandas as pd
-import re
+import streamlit as st
 
-# Configuração visual do aplicativo
-st.set_page_config(page_title="Cardápio Digital", layout="centered")
+st.set_page_config(page_title="Cardápio Digital", page_icon="🍔", layout="centered")
 
-# Busca o link da planilha com segurança no cofre do Streamlit
+# Pega o link da planilha configurado nos secrets do Streamlit
 try:
-    LINK_PLANILHA = st.secrets["LINK_PLANILHA"]
-except KeyError:
-    st.error("Erro de configuração: adicione 'LINK_PLANILHA' nos Secrets do Streamlit.")
+    sheet_url = st.secrets["LINK_PLANILHA"]
+except:
+    # Se der erro, coloque sua URL do CSV direto aqui entre as aspas
+    sheet_url = "URL_DO_SEU_CSV_AQUI"
+
+@st.cache_data(ttl=10) # Atualiza o cache a cada 10 segundos
+def carregar_dados(url):
+    return pd.read_csv(url)
+
+try:
+    df = carregar_dados(sheet_url)
+except Exception as e:
+    st.error("Erro ao carregar a base de dados.")
     st.stop()
 
-# Função que converte links do Google Drive para links diretos de imagem
-def converter_link_drive(url):
-    if pd.isna(url) or not isinstance(url, str):
-        return None
-    match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
-    if match:
-        file_id = match.group(1)
-        return f"https://lh3.googleusercontent.com/d/{file_id}"
-    return url
+# Captura qual é o cliente pelo link (ex: site.app/?cliente=Caravaggio)
+query_params = st.query_params
+cliente_atual = query_params.get("cliente")
 
-@st.cache_data(ttl=30)  # Atualiza as informações a cada 30 segundos
-def carregar_dados():
-    return pd.read_csv(LINK_PLANILHA)
+if not cliente_atual:
+    st.warning("Olá! Por favor, acesse o cardápio lendo o QR Code do estabelecimento.")
+    st.stop()
 
-try:
-    df = carregar_dados()
+# Filtra a planilha inteira para mostrar SÓ as linhas desse cliente
+# O .str.lower() garante que "Caravaggio" e "caravaggio" funcionem igual
+df_cliente = df[df['Id_Cliente'].astype(str).str.lower() == str(cliente_atual).lower()]
 
-    # Título principal baseado na primeira linha do estabelecimento
-    nome_estabelecimento = df['Estabelecimento'].iloc[0] if not df.empty else "Cardápio Digital"
-    st.title(f"🍔 {nome_estabelecimento}")
-    st.markdown("---")
+if df_cliente.empty:
+    st.error("Ops! Cardápio não encontrado ou estabelecimento inativo.")
+    st.stop()
 
-    # Renderiza a lista de produtos
-    for index, linha in df.iterrows():
-        col1, col2 = st.columns([3, 1])
+# Monta o Cabeçalho com o nome do estabelecimento (Pega da coluna 'Nome')
+nome_loja = df_cliente["Nome"].iloc[0]
+st.title(f"🍔 {nome_loja}")
+st.markdown("---")
+
+# Separa os produtos por Categoria (ex: Aperitivos, Bebidas, etc)
+categorias = df_cliente['Categoria'].dropna().unique()
+
+for cat in categorias:
+    st.header(cat)
+    # Filtra os itens apenas daquela categoria
+    df_cat = df_cliente[df_cliente['Categoria'] == cat]
+    
+    for index, linha in df_cat.iterrows():
+        st.subheader(str(linha.get("Item", "Produto")))
         
-        with col1:
-            st.subheader(linha['Produto'])
-            if pd.notna(linha['Descrição']):
-                st.write(linha['Descrição'])
-            st.write(f"**R$ {float(linha['Preço']):.2f}**")
-        
-        with col2:
-            img_url = converter_link_drive(linha['link/img'])
-            if img_url:
-                st.image(img_url, use_container_width=True)
-                
+        # Mostra a descrição apenas se ela existir
+        descricao = str(linha.get("Descrição", ""))
+        if pd.notna(linha.get("Descrição")) and descricao.lower() != "nan":
+             st.write(descricao)
+             
+        # Formata o preço
+        st.markdown(f"**R$ {float(linha.get('Preço', 0)):.2f}**")
+
+        # Tratamento da imagem
+        url_imagem = str(linha.get("img", "")).strip() if pd.notna(linha.get("img", "")) else ""
+        if url_imagem and url_imagem.lower() not in ["0", "nan", ""]:
+            try:
+                st.image(url_imagem, use_container_width=True)
+            except:
+                pass
+
         st.markdown("---")
-
-except Exception as e:
-    st.error("Carregando cardápio... Verifique se a planilha está acessível.")
